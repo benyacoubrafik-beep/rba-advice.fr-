@@ -1,9 +1,4 @@
-// Netlify Function — Proxy sécurisé pour le chatbot RBA ADVICE
-// Variables d'environnement requises :
-//   GEMINI_API_KEY — Google AI Studio (gratuit)
-//   FORMSPREE_ID   — xgaogzzz
-
-const GEMINI_API = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
+const GEMINI_API = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent';
 const FORMSPREE  = 'https://formspree.io/f/';
 
 const SYSTEM_PROMPT = `Tu es l'assistant conversationnel de RBA ADVICE, cabinet de conseil et de pilotage immobilier en Île-de-France. Tu aides les visiteurs du site à comprendre les expertises de RBA ADVICE et à qualifier leur demande pour qu'elle soit transmise à Rafik Benyacoub.
@@ -43,7 +38,6 @@ Lorsque la conversation est complète (coordonnées collectées), ajoute EN DERN
 {"lead":true,"prenom":"...","nom":"...","societe":"...","fonction":"...","email":"...","telephone":"...","expertise":"...","actif":"...","localisation":"...","surface":"...","phase":"...","echeance":"...","role":"...","priorite":"CHAUD|TIEDE|FROID","resume":"3 lignes max"}`;
 
 exports.handler = async (event) => {
-  // CORS
   const headers = {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'POST, OPTIONS',
@@ -71,7 +65,6 @@ exports.handler = async (event) => {
     return { statusCode: 400, headers, body: JSON.stringify({ error: 'Messages required' }) };
   }
 
-  // Limite : max 50 messages par conversation
   if (messages.length > 50) {
     return { statusCode: 429, headers, body: JSON.stringify({ error: 'Conversation trop longue' }) };
   }
@@ -82,7 +75,6 @@ exports.handler = async (event) => {
   }
 
   try {
-    // Appel Gemini
     const geminiBody = {
       system_instruction: { parts: [{ text: SYSTEM_PROMPT }] },
       contents: messages.map(m => ({
@@ -115,7 +107,6 @@ exports.handler = async (event) => {
     const geminiData = await geminiRes.json();
     const rawText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || '';
 
-    // Détecter si un lead est présent
     let responseText = rawText;
     let leadData = null;
 
@@ -129,7 +120,6 @@ exports.handler = async (event) => {
       }
     }
 
-    // Envoi email via Formspree si lead complet
     if (leadData && leadData.lead && leadData.email) {
       await sendFormspree(leadData, messages);
     }
@@ -142,11 +132,11 @@ exports.handler = async (event) => {
 
   } catch (err) {
     console.error('Handler error:', err);
-    return { statusCode: 500, headers, body: JSON.stringify({ error: 'Erreur interne' }) };
+    return { statusCode: 500, headers, body: JSON.stringify({ error: 'Erreur interne', detail: err.message }) };
   }
 };
 
-appendMessage('bot', `Erreur ${res.status}: ${errData.error || 'inconnue'}${errData.detail ? ' — ' + errData.detail.substring(0, 600) : ''}`);
+async function sendFormspree(lead, messages) {
   const formspreeId = process.env.FORMSPREE_ID || 'xgaogzzz';
   const transcript = messages.map(m => `[${m.role}] ${m.content}`).join('\n');
 
