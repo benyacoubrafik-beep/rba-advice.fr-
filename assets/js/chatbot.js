@@ -145,7 +145,8 @@
       hideTyping();
 
       if (!res.ok) {
-        appendMessage('bot', "Une erreur est survenue. Veuillez réessayer ou contacter directement Rafik Benyacoub à r.benyacoub@rba-advice.fr.");
+        const errData = await res.json().catch(() => ({}));
+        appendMessage('bot', `Erreur ${res.status}: ${errData.error || 'inconnue'}${errData.detail ? ' — ' + errData.detail.substring(0, 150) : ''}`);
         isLoading = false;
         return;
       }
