@@ -146,7 +146,7 @@ exports.handler = async (event) => {
   }
 };
 
-async function sendFormspree(lead, messages) {
+appendMessage('bot', `Erreur ${res.status}: ${errData.error || 'inconnue'}${errData.detail ? ' — ' + errData.detail.substring(0, 600) : ''}`);
   const formspreeId = process.env.FORMSPREE_ID || 'xgaogzzz';
   const transcript = messages.map(m => `[${m.role}] ${m.content}`).join('\n');
 
