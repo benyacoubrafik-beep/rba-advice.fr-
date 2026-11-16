@@ -1,6 +1,5 @@
-const GEMINI_API = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent';
+const GEMINI_API = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent';
 const FORMSPREE  = 'https://formspree.io/f/';
-
 const SYSTEM_PROMPT = `Tu es l'assistant conversationnel de RBA ADVICE, cabinet de conseil et de pilotage immobilier en Île-de-France. Tu aides les visiteurs du site à comprendre les expertises de RBA ADVICE et à qualifier leur demande pour qu'elle soit transmise à Rafik Benyacoub.
 
 RÈGLES ABSOLUES :
