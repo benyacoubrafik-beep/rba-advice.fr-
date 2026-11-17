@@ -82,7 +82,7 @@ exports.handler = async (event) => {
       })),
       generationConfig: {
         temperature: 0.3,
-        maxOutputTokens: 500,
+      maxOutputTokens: 1024,
         topP: 0.8
       },
       safetySettings: [
