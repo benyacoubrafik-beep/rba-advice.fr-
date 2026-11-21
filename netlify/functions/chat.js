@@ -76,7 +76,7 @@ exports.handler = async (event) => {
   try {
     const geminiBody = {
       system_instruction: { parts: [{ text: SYSTEM_PROMPT }] },
-      contents: messages.map(m => ({
+    contents: messages.slice(-6).map(m => ({
         role: m.role === 'assistant' ? 'model' : 'user',
         parts: [{ text: m.content }]
       })),
