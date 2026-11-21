@@ -91,11 +91,17 @@ exports.handler = async (event) => {
       ]
     };
 
-    const geminiRes = await fetch(`${GEMINI_API}?key=${GEMINI_KEY}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(geminiBody)
-    });
+    let geminiRes;
+    for (let i = 0; i < 3; i++) {
+      geminiRes = await fetch(`${GEMINI_API}?key=${GEMINI_KEY}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(geminiBody)
+      });
+      if (geminiRes.status !== 503) break;
+      await new Promise(r => setTimeout(r, 2000));
+    }
+
 
     if (!geminiRes.ok) {
       const err = await geminiRes.text();
