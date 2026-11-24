@@ -1,5 +1,11 @@
-const GEMINI_API = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent';
+// Netlify Function — Proxy sécurisé pour le chatbot RBA ADVICE
+// Variables d'environnement requises :
+//   GEMINI_API_KEY — Google AI Studio (gratuit)
+//   FORMSPREE_ID   — xgaogzzz
+
+const GEMINI_API = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent';
 const FORMSPREE  = 'https://formspree.io/f/';
+
 const SYSTEM_PROMPT = `Tu es l'assistant conversationnel de RBA ADVICE, cabinet de conseil et de pilotage immobilier en Île-de-France. Tu aides les visiteurs du site à comprendre les expertises de RBA ADVICE et à qualifier leur demande pour qu'elle soit transmise à Rafik Benyacoub.
 
 RÈGLES ABSOLUES :
@@ -37,6 +43,7 @@ Lorsque la conversation est complète (coordonnées collectées), ajoute EN DERN
 {"lead":true,"prenom":"...","nom":"...","societe":"...","fonction":"...","email":"...","telephone":"...","expertise":"...","actif":"...","localisation":"...","surface":"...","phase":"...","echeance":"...","role":"...","priorite":"CHAUD|TIEDE|FROID","resume":"3 lignes max"}`;
 
 exports.handler = async (event) => {
+  // CORS
   const headers = {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'POST, OPTIONS',
@@ -64,6 +71,7 @@ exports.handler = async (event) => {
     return { statusCode: 400, headers, body: JSON.stringify({ error: 'Messages required' }) };
   }
 
+  // Limite : max 50 messages par conversation
   if (messages.length > 50) {
     return { statusCode: 429, headers, body: JSON.stringify({ error: 'Conversation trop longue' }) };
   }
@@ -74,15 +82,16 @@ exports.handler = async (event) => {
   }
 
   try {
+    // Appel Gemini
     const geminiBody = {
       system_instruction: { parts: [{ text: SYSTEM_PROMPT }] },
-    contents: messages.slice(-6).map(m => ({
+      contents: messages.slice(-4).map(m => ({
         role: m.role === 'assistant' ? 'model' : 'user',
         parts: [{ text: m.content }]
       })),
       generationConfig: {
         temperature: 0.3,
-      maxOutputTokens: 1024,
+        maxOutputTokens: 400,
         topP: 0.8
       },
       safetySettings: [
@@ -91,17 +100,11 @@ exports.handler = async (event) => {
       ]
     };
 
-    let geminiRes;
-    for (let i = 0; i < 3; i++) {
-      geminiRes = await fetch(`${GEMINI_API}?key=${GEMINI_KEY}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(geminiBody)
-      });
-      if (geminiRes.status !== 503) break;
-      await new Promise(r => setTimeout(r, 2000));
-    }
-
+    const geminiRes = await fetch(`${GEMINI_API}?key=${GEMINI_KEY}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(geminiBody)
+    });
 
     if (!geminiRes.ok) {
       const err = await geminiRes.text();
@@ -112,6 +115,7 @@ exports.handler = async (event) => {
     const geminiData = await geminiRes.json();
     const rawText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || '';
 
+    // Détecter si un lead est présent
     let responseText = rawText;
     let leadData = null;
 
@@ -125,6 +129,7 @@ exports.handler = async (event) => {
       }
     }
 
+    // Envoi email via Formspree si lead complet
     if (leadData && leadData.lead && leadData.email) {
       await sendFormspree(leadData, messages);
     }
@@ -137,7 +142,7 @@ exports.handler = async (event) => {
 
   } catch (err) {
     console.error('Handler error:', err);
-    return { statusCode: 500, headers, body: JSON.stringify({ error: 'Erreur interne', detail: err.message }) };
+    return { statusCode: 500, headers, body: JSON.stringify({ error: 'Erreur interne' }) };
   }
 };
 
