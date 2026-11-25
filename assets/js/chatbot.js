@@ -146,7 +146,7 @@
 
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
-        appendMessage('bot', errData.error || "Je rencontre une difficulté technique. Veuillez réessayer ou contacter Rafik directement : r.benyacoub@rba-advice.fr");
+       appendMessage('bot', (errData.error || 'Erreur') + (errData.detail ? ' — ' + errData.detail.substring(0, 300) : ''));
         isLoading = false;
         return;
       }
