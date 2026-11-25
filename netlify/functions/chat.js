@@ -100,11 +100,22 @@ exports.handler = async (event) => {
       ]
     };
 
-    const geminiRes = await fetch(`${GEMINI_API}?key=${GEMINI_KEY}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(geminiBody)
-    });
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
+
+    let geminiRes;
+    try {
+      geminiRes = await fetch(`${GEMINI_API}?key=${GEMINI_KEY}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(geminiBody),
+        signal: controller.signal
+      });
+    } catch (fetchErr) {
+      clearTimeout(timeout);
+      return { statusCode: 503, headers, body: JSON.stringify({ error: 'Service temporairement indisponible. Veuillez réessayer dans quelques secondes.' }) };
+    }
+    clearTimeout(timeout);
 
     if (!geminiRes.ok) {
       const err = await geminiRes.text();
