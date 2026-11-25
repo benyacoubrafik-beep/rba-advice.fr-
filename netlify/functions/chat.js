@@ -1,275 +1,190 @@
-/* ── RBA ADVICE Chatbot Widget ─────────────────────────── */
-(function() {
-  'use strict';
+// Netlify Function — Proxy sécurisé pour le chatbot RBA ADVICE
+// Variables d'environnement requises :
+//   GEMINI_API_KEY — Google AI Studio (gratuit)
+//   FORMSPREE_ID   — xgaogzzz
 
-  // Configuration
-  const CONFIG = {
-    apiEndpoint: '/.netlify/functions/chat',
-    welcomeMessage: "Bonjour, je suis l'assistant de RBA ADVICE, cabinet de conseil et de pilotage immobilier en Île-de-France. Comment puis-je vous aider ?",
-    quickButtons: ['MOA / AMO', 'MOA technique', 'Due diligence', 'MOEX & pilotage', 'Prestation de service', "J'ai une question"]
+const GEMINI_API = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent';
+const FORMSPREE  = 'https://formspree.io/f/';
+
+const SYSTEM_PROMPT = `Assistant de RBA ADVICE, cabinet de conseil immobilier en Île-de-France. Fondé par Rafik Benyacoub (15 ans exp., +250M€ travaux). Contact : r.benyacoub@rba-advice.fr | 06 23 35 64 38.
+
+RÈGLES : français, vouvoiement, 2-3 phrases max, jamais de prix.
+
+EXPERTISES :
+1. MOA/AMO : pilotage opération de A à Z
+2. MOA Technique : analyse technique, aide à la décision
+3. Due Diligence : risques techniques avant acquisition
+4. MOEX/OPC : exécution chantier, délais, coûts, qualité
++ Prestation de service sur cahier des charges.
+
+QUALIFICATION (une question à la fois) : (1) besoin, (2) type d'actif, (3) localisation, (4) phase, (5) échéance, (6) rôle, (7) coordonnées (prénom, nom, société, e-mail, tél. facultatif).
+
+Fin de collecte : "Merci [Prénom]. Rafik vous recontacte sous 24h ouvrées."
+
+Quand coordonnées complètes, ajoute après ta réponse : |||LEAD|||{"lead":true,"prenom":"...","nom":"...","societe":"...","email":"...","telephone":"...","expertise":"...","actif":"...","localisation":"...","phase":"...","echeance":"...","role":"...","priorite":"CHAUD|TIEDE|FROID","resume":"..."}
+
+PRIORITÉ : CHAUD=travaux+<3mois, TIÈDE=conception, FROID=>6mois`;
+
+exports.handler = async (event) => {
+  // CORS
+  const headers = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type',
+    'Content-Type': 'application/json'
   };
 
-  let messages = [];
-  let isOpen = false;
-  let isLoading = false;
-  let consentGiven = false;
-
-  // ── Création du DOM ──────────────────────────────────────
-  function createWidget() {
-    // Bouton flottant
-    const btn = document.createElement('button');
-    btn.id = 'rba-chat-btn';
-    btn.setAttribute('aria-label', 'Ouvrir le chat RBA ADVICE');
-    btn.setAttribute('aria-expanded', 'false');
-    btn.innerHTML = `
-      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-          d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-4 4v-4z"/>
-      </svg>
-      <span id="rba-chat-badge" aria-hidden="true"></span>`;
-
-    // Fenêtre de chat
-    const win = document.createElement('div');
-    win.id = 'rba-chat-window';
-    win.setAttribute('role', 'dialog');
-    win.setAttribute('aria-label', 'Chat RBA ADVICE');
-    win.setAttribute('aria-modal', 'true');
-    win.innerHTML = `
-      <div id="rba-chat-header">
-        <div class="rba-chat-header-info">
-          <div class="rba-chat-avatar" aria-hidden="true">R</div>
-          <div>
-            <div class="rba-chat-name">RBA ADVICE</div>
-            <div class="rba-chat-status">Conseil &amp; Pilotage Immobilier</div>
-          </div>
-        </div>
-        <button id="rba-chat-close" aria-label="Fermer le chat">
-          <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true" width="20" height="20">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
-          </svg>
-        </button>
-      </div>
-      <div id="rba-chat-messages" role="log" aria-live="polite" aria-label="Messages"></div>
-      <div class="rba-rgpd-notice">
-        Vos données sont traitées conformément à notre
-        <a href="politique-confidentialite.html">politique de confidentialité</a>.
-      </div>
-      <div id="rba-chat-footer">
-        <textarea
-          id="rba-chat-input"
-          rows="1"
-          placeholder="Votre message…"
-          aria-label="Saisir un message"
-          maxlength="500"></textarea>
-        <button id="rba-chat-send" aria-label="Envoyer">
-          <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-              d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/>
-          </svg>
-        </button>
-      </div>`;
-
-    document.body.appendChild(btn);
-    document.body.appendChild(win);
+  if (event.httpMethod === 'OPTIONS') {
+    return { statusCode: 200, headers, body: '' };
   }
 
-  // ── Afficher un message ──────────────────────────────────
-  function appendMessage(role, text, quickBtns) {
-    const container = document.getElementById('rba-chat-messages');
-    const div = document.createElement('div');
-    div.className = `rba-msg rba-msg-${role}`;
-    div.textContent = text;
-    container.appendChild(div);
-
-    if (quickBtns && quickBtns.length > 0) {
-      const btnGroup = document.createElement('div');
-      btnGroup.className = 'rba-quick-btns';
-      quickBtns.forEach(label => {
-        const b = document.createElement('button');
-        b.className = 'rba-quick-btn';
-        b.textContent = label;
-        b.onclick = () => sendMessage(label);
-        btnGroup.appendChild(b);
-      });
-      container.appendChild(btnGroup);
-    }
-
-    scrollBottom();
+  if (event.httpMethod !== 'POST') {
+    return { statusCode: 405, headers, body: JSON.stringify({ error: 'Method not allowed' }) };
   }
 
-  // ── Indicateur de chargement ─────────────────────────────
-  function showTyping() {
-    const container = document.getElementById('rba-chat-messages');
-    const div = document.createElement('div');
-    div.className = 'rba-typing';
-    div.id = 'rba-typing-indicator';
-    div.innerHTML = '<span></span><span></span><span></span>';
-    container.appendChild(div);
-    scrollBottom();
-  }
-  function hideTyping() {
-    const el = document.getElementById('rba-typing-indicator');
-    if (el) el.remove();
+  let body;
+  try {
+    body = JSON.parse(event.body);
+  } catch {
+    return { statusCode: 400, headers, body: JSON.stringify({ error: 'Invalid JSON' }) };
   }
 
-  // ── Scroll bas ───────────────────────────────────────────
-  function scrollBottom() {
-    const container = document.getElementById('rba-chat-messages');
-    container.scrollTop = container.scrollHeight;
+  const { messages } = body;
+  if (!messages || !Array.isArray(messages) || messages.length === 0) {
+    return { statusCode: 400, headers, body: JSON.stringify({ error: 'Messages required' }) };
   }
 
-  // ── Envoi d'un message ───────────────────────────────────
-  async function sendMessage(text) {
-    text = (text || '').trim();
-    if (!text || isLoading) return;
+  // Limite : max 50 messages par conversation
+  if (messages.length > 50) {
+    return { statusCode: 429, headers, body: JSON.stringify({ error: 'Conversation trop longue' }) };
+  }
 
-    // Désactiver les boutons rapides existants
-    document.querySelectorAll('.rba-quick-btn').forEach(b => b.disabled = true);
+  const GEMINI_KEY = process.env.GEMINI_API_KEY;
+  if (!GEMINI_KEY) {
+    return { statusCode: 500, headers, body: JSON.stringify({ error: 'Configuration manquante' }) };
+  }
 
-    messages.push({ role: 'user', content: text });
-    appendMessage('user', text);
+  try {
+    // Appel Gemini
+    const geminiBody = {
+      system_instruction: { parts: [{ text: SYSTEM_PROMPT }] },
+      contents: messages.slice(-4).map(m => ({
+        role: m.role === 'assistant' ? 'model' : 'user',
+        parts: [{ text: m.content }]
+      })),
+      generationConfig: {
+        temperature: 0.3,
+        maxOutputTokens: 400,
+        topP: 0.8
+      },
+      safetySettings: [
+        { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_LOW_AND_ABOVE' },
+        { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_LOW_AND_ABOVE' }
+      ]
+    };
 
-    const input = document.getElementById('rba-chat-input');
-    if (input) { input.value = ''; input.style.height = 'auto'; }
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 9500);
 
-    isLoading = true;
-    showTyping();
-
+    let geminiRes;
     try {
-      const res = await fetch(CONFIG.apiEndpoint, {
+      geminiRes = await fetch(`${GEMINI_API}?key=${GEMINI_KEY}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages })
+        body: JSON.stringify(geminiBody),
+        signal: controller.signal
       });
+    } catch (fetchErr) {
+      clearTimeout(timeout);
+      return { statusCode: 503, headers, body: JSON.stringify({ error: 'Service temporairement indisponible. Veuillez réessayer dans quelques secondes.' }) };
+    }
+    clearTimeout(timeout);
 
-      hideTyping();
-
-      if (!res.ok) {
-        const errData = await res.json().catch(() => ({}));
-        appendMessage('bot', errData.error || "Je rencontre une difficulté technique. Veuillez réessayer ou contacter Rafik directement : r.benyacoub@rba-advice.fr");
-        isLoading = false;
-        return;
-      }
-
-      const data = await res.json();
-      const botText = data.message || '';
-
-      messages.push({ role: 'assistant', content: botText });
-
-      // Afficher le consentement RGPD si coordonnées demandées
-      const needsConsent = /e-mail|coordonnées|prénom|nom/i.test(botText) && !consentGiven;
-      appendMessage('bot', botText);
-
-      if (needsConsent) {
-        showConsentBox();
-      }
-
-    } catch (err) {
-      hideTyping();
-      appendMessage('bot', "Je rencontre une difficulté technique. Vous pouvez contacter Rafik directement : r.benyacoub@rba-advice.fr ou 06 23 35 64 38.");
+    if (!geminiRes.ok) {
+      const err = await geminiRes.text();
+      console.error('Gemini error:', err);
+      return { statusCode: 502, headers, body: JSON.stringify({ error: 'LLM indisponible', detail: err }) };
     }
 
-    isLoading = false;
-  }
+    const geminiData = await geminiRes.json();
+    const rawText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || '';
 
-  // ── Case de consentement RGPD ────────────────────────────
-  function showConsentBox() {
-    if (consentGiven) return;
-    const container = document.getElementById('rba-chat-messages');
-    const box = document.createElement('div');
-    box.className = 'rba-consent-box';
-    box.innerHTML = `
-      <label>
-        <input type="checkbox" id="rba-consent-cb">
-        <span>J'accepte que RBA ADVICE conserve ces informations pour traiter ma demande, conformément à la
-          <a href="politique-confidentialite.html" target="_blank" style="color:#8A6430;">politique de confidentialité</a>.
-        </span>
-      </label>`;
-    container.appendChild(box);
-    scrollBottom();
+    // Détecter si un lead est présent
+    let responseText = rawText;
+    let leadData = null;
 
-    document.getElementById('rba-consent-cb').addEventListener('change', function() {
-      consentGiven = this.checked;
-      if (this.checked) box.style.borderColor = 'rgba(16,185,129,0.5)';
-    });
-  }
-
-  // ── Ouvrir / fermer ──────────────────────────────────────
-  function openChat() {
-    const win = document.getElementById('rba-chat-window');
-    const btn = document.getElementById('rba-chat-btn');
-    isOpen = true;
-    win.classList.add('open');
-    btn.setAttribute('aria-expanded', 'true');
-    document.getElementById('rba-chat-badge').style.display = 'none';
-
-    // Message de bienvenue à la première ouverture
-    if (messages.length === 0) {
-      setTimeout(() => {
-        appendMessage('bot', CONFIG.welcomeMessage, CONFIG.quickButtons);
-      }, 300);
+    if (rawText.includes('|||LEAD|||')) {
+      const parts = rawText.split('|||LEAD|||');
+      responseText = parts[0].trim();
+      try {
+        leadData = JSON.parse(parts[1].trim());
+      } catch (e) {
+        console.error('Lead JSON parse error:', e);
+      }
     }
 
-    setTimeout(() => {
-      const input = document.getElementById('rba-chat-input');
-      if (input) input.focus();
-    }, 350);
+    // Envoi email via Formspree si lead complet
+    if (leadData && leadData.lead && leadData.email) {
+      await sendFormspree(leadData, messages);
+    }
+
+    return {
+      statusCode: 200,
+      headers,
+      body: JSON.stringify({ message: responseText, lead_captured: !!leadData })
+    };
+
+  } catch (err) {
+    console.error('Handler error:', err);
+    return { statusCode: 500, headers, body: JSON.stringify({ error: 'Erreur interne' }) };
   }
+};
 
-  function closeChat() {
-    const win = document.getElementById('rba-chat-window');
-    const btn = document.getElementById('rba-chat-btn');
-    isOpen = false;
-    win.classList.remove('open');
-    btn.setAttribute('aria-expanded', 'false');
-    btn.focus();
-  }
+async function sendFormspree(lead, messages) {
+  const formspreeId = process.env.FORMSPREE_ID || 'xgaogzzz';
+  const transcript = messages.map(m => `[${m.role}] ${m.content}`).join('\n');
 
-  // ── Événements ───────────────────────────────────────────
-  function bindEvents() {
-    document.getElementById('rba-chat-btn').addEventListener('click', () => {
-      isOpen ? closeChat() : openChat();
-    });
+  const subject = `[Lead site] ${lead.expertise || 'Demande'} – ${lead.societe || lead.nom || 'Inconnu'} – ${lead.localisation || 'N/A'}`;
 
-    document.getElementById('rba-chat-close').addEventListener('click', closeChat);
+  const emailBody = `
+NOUVEAU LEAD CHATBOT RBA ADVICE
+================================
+Date : ${new Date().toLocaleString('fr-FR')}
+Canal : Chatbot texte
 
-    document.getElementById('rba-chat-send').addEventListener('click', () => {
-      const input = document.getElementById('rba-chat-input');
-      sendMessage(input.value);
-    });
+CONTACT
+Prénom / Nom : ${lead.prenom || ''} ${lead.nom || ''}
+Société : ${lead.societe || 'N/A'}
+Fonction : ${lead.fonction || 'N/A'}
+E-mail : ${lead.email}
+Téléphone : ${lead.telephone || 'Non renseigné'}
 
-    document.getElementById('rba-chat-input').addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' && !e.shiftKey) {
-        e.preventDefault();
-        const input = document.getElementById('rba-chat-input');
-        sendMessage(input.value);
-      }
-    });
+PROJET
+Expertise : ${lead.expertise || 'N/A'}
+Type d'actif : ${lead.actif || 'N/A'}
+Localisation : ${lead.localisation || 'N/A'}
+Surface / Nature : ${lead.surface || 'N/A'}
+Phase : ${lead.phase || 'N/A'}
+Échéance : ${lead.echeance || 'N/A'}
+Rôle : ${lead.role || 'N/A'}
 
-    // Auto-resize textarea
-    document.getElementById('rba-chat-input').addEventListener('input', function() {
-      this.style.height = 'auto';
-      this.style.height = Math.min(this.scrollHeight, 80) + 'px';
-    });
+QUALIFICATION
+Niveau de priorité : ${lead.priorite || 'N/A'}
+Résumé : ${lead.resume || 'N/A'}
 
-    // Fermer avec Escape
-    document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape' && isOpen) closeChat();
-    });
-  }
+TRANSCRIPTION
+${transcript}
+  `.trim();
 
-  // ── Init ─────────────────────────────────────────────────
-  function init() {
-    createWidget();
-    bindEvents();
-  }
-
-  // Chargement différé
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init);
-  } else {
-    // Délai pour ne pas bloquer le rendu initial
-    setTimeout(init, 100);
-  }
-
-})();
+  await fetch(`${FORMSPREE}${formspreeId}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+    body: JSON.stringify({
+      _subject: subject,
+      _language: 'fr',
+      message: emailBody,
+      email: lead.email,
+      name: `${lead.prenom || ''} ${lead.nom || ''}`.trim()
+    })
+  });
+}
